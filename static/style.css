@@ -1,0 +1,270 @@
+:root {
+  --vmw-blue: #0070d1;
+  --vmw-dark: #1a1a2e;
+}
+
+body {
+  background: #f4f6f9;
+  font-size: 0.9rem;
+}
+
+.navbar {
+  background: var(--vmw-dark);
+  border-bottom: 3px solid var(--vmw-blue);
+}
+
+.navbar-brand {
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+}
+
+/* Step Progress */
+.step-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.step-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #dee2e6;
+  color: #6c757d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  transition: all 0.3s ease;
+}
+
+.step.active .step-circle {
+  background: var(--vmw-blue);
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(0, 112, 209, 0.2);
+}
+
+.step.completed .step-circle {
+  background: #198754;
+  color: #fff;
+}
+
+.step-label {
+  font-size: 0.72rem;
+  color: #6c757d;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.step.active .step-label,
+.step.completed .step-label {
+  color: #212529;
+}
+
+.step-line {
+  flex: 1;
+  height: 2px;
+  background: #dee2e6;
+  margin: 0 8px;
+  margin-bottom: 20px;
+  transition: background 0.3s ease;
+}
+
+.step-line.completed {
+  background: #198754;
+}
+
+/* Cards */
+.card {
+  border: none;
+  border-radius: 10px;
+}
+
+.card-header {
+  background: #fff;
+  border-bottom: 1px solid #e9ecef;
+  font-weight: 600;
+  border-radius: 10px 10px 0 0 !important;
+  padding: 14px 20px;
+}
+
+.card-body {
+  padding: 20px;
+}
+
+/* Scan cards */
+.scan-card {
+  cursor: pointer;
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  padding: 14px;
+  transition: all 0.2s ease;
+}
+
+.scan-card:hover {
+  border-color: var(--vmw-blue);
+  background: #f0f7ff;
+}
+
+.scan-card.selected {
+  border-color: var(--vmw-blue);
+  background: #e8f2fd;
+}
+
+.scan-card .scan-name {
+  font-weight: 600;
+  color: #212529;
+}
+
+.scan-card .scan-meta {
+  font-size: 0.78rem;
+  color: #6c757d;
+  margin-top: 2px;
+}
+
+/* Severity badges */
+.sev-critical { background: #dc3545; color: #fff; }
+.sev-high     { background: #fd7e14; color: #fff; }
+.sev-medium   { background: #ffc107; color: #212529; }
+.sev-low      { background: #0dcaf0; color: #212529; }
+.sev-info     { background: #6c757d; color: #fff; }
+
+.badge-sev {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* CVE table */
+#cveTable tbody tr.no-coverage {
+  opacity: 0.45;
+}
+
+#cveTable .cve-id {
+  font-family: monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.coverage-badge {
+  font-size: 0.7rem;
+}
+
+/* Status text */
+.status-text {
+  font-size: 0.85rem;
+}
+
+.status-text.success { color: #198754; }
+.status-text.error   { color: #dc3545; }
+
+/* Deploy log */
+.deploy-log {
+  background: #0d1117;
+  border-radius: 8px;
+  padding: 16px 20px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.82rem;
+  color: #c9d1d9;
+  min-height: 140px;
+}
+
+.deploy-log .log-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  opacity: 0;
+  animation: fadeIn 0.4s ease forwards;
+}
+
+.deploy-log .log-line.ok   { color: #3fb950; }
+.deploy-log .log-line.info { color: #79c0ff; }
+.deploy-log .log-line.err  { color: #f85149; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Result summary cards */
+.result-stat {
+  background: #fff;
+  border-radius: 8px;
+  padding: 14px 18px;
+  border-left: 4px solid var(--vmw-blue);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.result-stat .stat-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6c757d;
+  font-weight: 600;
+}
+
+.result-stat .stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #212529;
+  margin-top: 2px;
+}
+
+/* Toast */
+.toast { min-width: 280px; }
+.toast.bg-danger  { --bs-toast-bg: rgba(220,53,69,0.95); color:#fff; }
+.toast.bg-success { --bs-toast-bg: rgba(25,135,84,0.95);  color:#fff; }
+
+/* Coverage summary cards */
+.cov-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px 16px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+}
+
+.cov-card .cov-num {
+  font-size: 1.8rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.cov-card .cov-label {
+  font-size: 0.72rem;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Wizard step transitions */
+.wizard-step {
+  animation: stepIn 0.3s ease;
+}
+
+@keyframes stepIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* btn-primary override */
+.btn-primary {
+  background: var(--vmw-blue);
+  border-color: var(--vmw-blue);
+}
+.btn-primary:hover {
+  background: #005bb5;
+  border-color: #005bb5;
+}
