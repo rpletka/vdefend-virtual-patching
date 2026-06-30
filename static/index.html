@@ -17,7 +17,7 @@
       <img src="https://www.vmware.com/favicon.ico" width="20" height="20" alt="" onerror="this.style.display='none'" />
       <strong>vDefend</strong>&nbsp;Virtual Patching
     </span>
-    <span class="badge bg-secondary">NSX 9.1 · IDPS</span>
+    <span class="badge bg-secondary" id="nsxVersionBadge">NSX · Not connected</span>
   </div>
 </nav>
 
@@ -183,9 +183,8 @@
           <div class="col-md-4">
             <label class="form-label">Action Mode</label>
             <select id="actionMode" class="form-select">
-              <option value="REJECT">REJECT — Block &amp; Reset (Recommended)</option>
-              <option value="DROP">DROP — Silent Block</option>
-              <option value="DETECT">DETECT — Alert Only</option>
+              <option value="DETECT" selected>DETECT — Alert Only</option>
+              <option value="DETECT_PREVENT">DETECT_PREVENT — Block &amp; Alert</option>
             </select>
           </div>
           <div class="col-md-4">
@@ -222,15 +221,6 @@
                     <div class="col-md-6">
                       <label class="form-label text-muted small mb-1">Rule Name</label>
                       <input type="text" class="form-control form-control-sm" id="advRuleName" placeholder="Auto-generated">
-                    </div>
-                    <div class="col-md-6">
-                      <label class="form-label text-muted small mb-1">Action</label>
-                      <select class="form-select form-select-sm" id="advAction">
-                        <option value="DETECT_PREVENT" selected>Detect & Prevent</option>
-                        <option value="DETECT">Detect Only</option>
-                        <option value="REJECT">Reject</option>
-                        <option value="DROP">Drop</option>
-                      </select>
                     </div>
                   </div>
                 </div>
@@ -274,6 +264,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="/static/app_shareable.js"></script>
+<script src="/static/app.js"></script>
 </body>
 </html>

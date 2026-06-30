@@ -327,7 +327,11 @@ async function nsxConnectAndIndex() {
 
   try {
     // 1. Test connection
-    await apiPost('/api/nsx/connect', { url, username: user, password: pass });
+    const connRes = await apiPost('/api/nsx/connect', { url, username: user, password: pass });
+    if (connRes.version) {
+      document.getElementById('nsxVersionBadge').textContent =
+        `NSX ${connRes.version}${connRes.exclusion_mode ? ' · exclusion mode' : ''} · IDPS`;
+    }
     setStatus('nsxStatus', '✓ Connected — indexing signatures…', 'success');
     setBtn('btnNsxConnect', true, 'Indexing signatures…');
     document.getElementById('indexProgress').classList.remove('d-none');
@@ -414,7 +418,7 @@ async function deploy() {
   const pass    = document.getElementById('nsxPass').value;
   
   // Advanced Config
-  const action  = document.getElementById('advAction').value;
+  const action  = document.getElementById('actionMode').value;
   const category = document.getElementById('advCategory').value;
   const polN    = document.getElementById('advPolicyName').value.trim() || "Virtual Patches";
   const ruleN   = document.getElementById('advRuleName').value.trim() || `VirtualPatch-Rule-${today()}`;
@@ -474,7 +478,7 @@ async function deploy() {
 function renderResult(res, action, cveCount) {
   const wrap = document.getElementById('resultSummary');
   const stats = [
-    { label: 'Policy Category',     value: document.getElementById('advCategory').value, color: '#0070d1' },
+    { label: 'Policy Category',     value: res.category_used || document.getElementById('advCategory').value, color: '#0070d1' },
     { label: 'Policy',              value: res.policy_id,              color: '#0070d1' },
     { label: 'Rule',                value: res.rule_id,                color: '#0070d1' },
     { label: 'Group (Tag-based)',   value: res.group_name,             color: '#0070d1' },

@@ -19,14 +19,42 @@ from pathlib import Path
 import urllib.error
 from urllib.parse import urlparse, parse_qs
 
-import nessus_client_shareable as nessus_client
-import nsx_client_shareable as nsx_client
+import nessus_client
+import nsx_client
 
 PORT = 5002
 STATIC_DIR = Path(__file__).parent / "static"
+STATE_FILE = Path(__file__).parent / "profiles_state.json"
 
 # ── In-memory state (single-user demo) ────────────────────────────────────────
 _state: dict = {}
+
+
+def _record_profile(profile_id: str, profile_name: str, cve_list: list, rule_action: str):
+    """Upsert a profile entry in profiles_state.json for refresh_profiles.py."""
+    try:
+        state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {"profiles": []}
+        profiles = state.setdefault("profiles", [])
+        # Update existing entry or append new one
+        for p in profiles:
+            if p["profile_id"] == profile_id:
+                p["profile_name"] = profile_name
+                p["cve_list"] = cve_list
+                p["rule_action"] = rule_action
+                p["deployed_at"] = datetime.utcnow().isoformat() + "Z"
+                break
+        else:
+            profiles.append({
+                "profile_id": profile_id,
+                "profile_name": profile_name,
+                "cve_list": cve_list,
+                "rule_action": rule_action,
+                "deployed_at": datetime.utcnow().isoformat() + "Z",
+                "last_refreshed": None,
+            })
+        STATE_FILE.write_text(json.dumps(state, indent=2))
+    except Exception as e:
+        print(f"Warning: could not update profiles_state.json: {e}")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -62,7 +90,7 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
 
         if path == "/":
-            self._serve_file(STATIC_DIR / "index_shareable.html")
+            self._serve_file(STATIC_DIR / "index.html")
             return
 
         if path.startswith("/static/"):
@@ -116,7 +144,12 @@ class Handler(BaseHTTPRequestHandler):
 
             elif path == "/api/nsx/connect":
                 result = nsx_client.connect(body["url"], body["username"], body["password"])
-                _state.update({"nsx_url": body["url"], "nsx_username": body["username"], "nsx_password": body["password"]})
+                _state.update({
+                    "nsx_url": body["url"],
+                    "nsx_username": body["username"],
+                    "nsx_password": body["password"],
+                    "nsx_version": result.get("version", ""),
+                })
                 _ok(self, result)
 
             elif path == "/api/nsx/signatures/index":
@@ -150,7 +183,10 @@ class Handler(BaseHTTPRequestHandler):
         url, user, pwd = body["nsx_url"], body["username"], body["password"]
         cve_list = body["cve_list"]
         host_ips = body["host_ips"]
-        
+
+        # NSX version from state (set during /api/nsx/connect)
+        nsx_version = _state.get("nsx_version", "")
+
         # Advanced config overrides
         action = body.get("action", "DETECT_PREVENT").upper()
         profile_name = body.get("profile_name", f"VirtualPatch-{run_id}")
@@ -158,19 +194,8 @@ class Handler(BaseHTTPRequestHandler):
         category = body.get("category", "EmergencyThreatRules")
         rule_name = body.get("rule_name", f"VirtualPatch-Rule-{run_id}")
 
-        # Map frontend action to profile and rule actions
-        profile_action = "REJECT"
-        rule_action = "DETECT_PREVENT"
-        
-        if action == "DETECT":
-            profile_action = "ALERT"
-            rule_action = "DETECT"
-        elif action == "DROP":
-            profile_action = "DROP"
-        elif action == "REJECT":
-            profile_action = "REJECT"
-        elif action == "DETECT_PREVENT":
-            profile_action = "REJECT"
+        # Rule-level action only; signature default actions are left unchanged.
+        rule_action = "DETECT" if action == "DETECT" else "DETECT_PREVENT"
 
         sig_result = nsx_client.index_signatures(url, user, pwd, cve_list)
         matched_cves = sig_result["matched_cves"]
@@ -184,8 +209,20 @@ class Handler(BaseHTTPRequestHandler):
             nsx_client.tag_vm_by_ip(url, user, pwd, ip, cve_list)
 
         group_r   = nsx_client.create_group(url, user, pwd, run_id, cve_list)
-        profile_r = nsx_client.create_profile(url, user, pwd, run_id, profile_name, matched_cves, profile_action)
-        policy_r  = nsx_client.create_policy(url, user, pwd, run_id, rule_name, profile_r["profile_path"], group_r["group_path"], category, policy_name, rule_action)
+        profile_r = nsx_client.create_profile(
+            url, user, pwd, run_id, profile_name, matched_cves,
+            rule_action=rule_action, nsx_version=nsx_version,
+        )
+        rule_tag = "Monitor-" + ",".join(cve_list)
+        policy_r  = nsx_client.create_policy(
+            url, user, pwd, run_id, rule_name,
+            profile_r["profile_path"], group_r["group_path"],
+            category, policy_name, rule_action,
+            nsx_version=nsx_version,
+            rule_tag=rule_tag,
+        )
+
+        _record_profile(profile_r["profile_id"], profile_name, cve_list, rule_action)
 
         _ok(self, {
             "success": True,
@@ -194,6 +231,7 @@ class Handler(BaseHTTPRequestHandler):
             "cves_covered": len(matched_cves),
             "hosts_protected": len(host_ips),
             "action": action,
+            "nsx_version": nsx_version,
             "message": "Virtual patch deployed successfully.",
         })
 
