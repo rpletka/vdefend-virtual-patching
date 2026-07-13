@@ -198,20 +198,18 @@ def tag_vm_by_ip(url: str, username: str, password: str, ip_address: str, cve_li
     url = _clean_url(url)
 
     def _vif_lookup(ip):
-        """Walk fabric VIFs — IPs are nested in ip_address_info[].ip_addresses[]."""
-        cursor = None
-        while True:
-            qs = f"page_size=500{f'&cursor={urllib.parse.quote(cursor)}' if cursor else ''}"
-            res = _req(f"{url}/api/v1/fabric/vifs?{qs}", username=username, password=password)
-            for vif in (res or {}).get("results", []):
-                vif_ips = [a for info in vif.get("ip_address_info", [])
-                           for a in info.get("ip_addresses", [])]
-                if ip in vif_ips:
-                    return vif.get("owner_vm_id")
-            cursor = (res or {}).get("cursor")
-            if not cursor:
-                break
-        return None
+        """Query fabric VIFs by IP address — same filter the NSX UI uses."""
+        res = _req(f"{url}/api/v1/fabric/vifs?ip_address={urllib.parse.quote(ip)}",
+                   username=username, password=password)
+        results = (res or {}).get("results", [])
+        return results[0].get("owner_vm_id") if results else None
+
+    def _vm_ip_search(ip):
+        """Query fabric/virtual-machines with ip_address filter — works when VIF IP info absent."""
+        res = _req(f"{url}/api/v1/fabric/virtual-machines?ip_address={urllib.parse.quote(ip)}",
+                   username=username, password=password)
+        results = (res or {}).get("results", [])
+        return results[0].get("external_id") if results else None
 
     def _name_search(name):
         """Fabric VM list by display_name — only useful when identifier is a hostname."""
@@ -224,6 +222,8 @@ def tag_vm_by_ip(url: str, username: str, password: str, ip_address: str, cve_li
     short_name = ip_address.split(".")[0] if not is_ip else None
 
     vm_id = _vif_lookup(ip_address)
+    if not vm_id and is_ip:
+        vm_id = _vm_ip_search(ip_address)
     if not vm_id and short_name:
         vm_id = _name_search(short_name)
 
