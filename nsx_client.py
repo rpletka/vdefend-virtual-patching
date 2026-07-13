@@ -450,7 +450,7 @@ def create_profile(
         # Modern NSX (9.1+): CVE criteria filter handles scoping cleanly.
         # In DETECT_PREVENT mode, escalate any ALERT signatures to REJECT.
         # In DETECT mode, no overrides — rule-level DETECT makes everything alert-only.
-        profile_id = f"virtualPatch-profile-{run_id}"
+        profile_id = _profile_id_for_cves(list(matched_cves.keys()))
         nsx_cves = [cve[4:] if cve.startswith("CVE-") else cve for cve in matched_cves.keys()]
 
         overrides = []
@@ -462,6 +462,15 @@ def create_profile(
                     if sid and sid not in seen and _should_escalate(sig.get("action", "")):
                         seen.add(sid)
                         overrides.append({"signature_id": sid, "action": "REJECT"})
+
+        profile_endpoint = f"{url}{POLICY}/infra/settings/firewall/security/intrusion-services/profiles/{profile_id}"
+        try:
+            _req(profile_endpoint, username=username, password=password)
+            method = "PATCH"
+            print(f"Profile {profile_id} exists — updating in place")
+        except Exception:
+            method = "PUT"
+            print(f"Profile {profile_id} not found — creating")
 
         body = {
             "display_name": profile_name,
@@ -477,10 +486,7 @@ def create_profile(
             "include_system_signatures": True,
             "include_custom_signatures": False,
         }
-        _req(
-            f"{url}{POLICY}/infra/settings/firewall/security/intrusion-services/profiles/{profile_id}",
-            method="PUT", body=body, username=username, password=password,
-        )
+        _req(profile_endpoint, method=method, body=body, username=username, password=password)
         return {
             "profile_id": profile_id,
             "profile_path": f"/infra/settings/firewall/security/intrusion-services/profiles/{profile_id}",
