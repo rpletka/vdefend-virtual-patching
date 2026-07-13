@@ -197,19 +197,29 @@ _IP_RE = __import__("re").compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 def tag_vm_by_ip(url: str, username: str, password: str, ip_address: str, cve_list: list):
     url = _clean_url(url)
 
-    def _vif_lookup(ip):
-        """Query fabric VIFs by IP address — same filter the NSX UI uses."""
-        res = _req(f"{url}/api/v1/fabric/vifs?ip_address={urllib.parse.quote(ip)}",
-                   username=username, password=password)
-        results = (res or {}).get("results", [])
-        return results[0].get("owner_vm_id") if results else None
-
-    def _vm_ip_search(ip):
-        """Query fabric/virtual-machines with ip_address filter — works when VIF IP info absent."""
-        res = _req(f"{url}/api/v1/fabric/virtual-machines?ip_address={urllib.parse.quote(ip)}",
+    def _policy_search(ip):
+        """Search policy index for VirtualMachine by IP — works across all NSX 9.x versions."""
+        query = f"resource_type:VirtualMachine AND ip_addresses:{urllib.parse.quote(ip)}"
+        res = _req(f"{url}{POLICY}/search/query?query={query}&page_size=10",
                    username=username, password=password)
         results = (res or {}).get("results", [])
         return results[0].get("external_id") if results else None
+
+    def _vif_pagination(ip):
+        """Walk all fabric VIFs and inspect ip_address_info — slower but broadly compatible."""
+        cursor = None
+        while True:
+            qs = f"page_size=500{f'&cursor={urllib.parse.quote(cursor)}' if cursor else ''}"
+            res = _req(f"{url}/api/v1/fabric/vifs?{qs}", username=username, password=password)
+            for vif in (res or {}).get("results", []):
+                vif_ips = [a for info in vif.get("ip_address_info", [])
+                           for a in info.get("ip_addresses", [])]
+                if ip in vif_ips:
+                    return vif.get("owner_vm_id")
+            cursor = (res or {}).get("cursor")
+            if not cursor:
+                break
+        return None
 
     def _name_search(name):
         """Fabric VM list by display_name — only useful when identifier is a hostname."""
@@ -221,9 +231,9 @@ def tag_vm_by_ip(url: str, username: str, password: str, ip_address: str, cve_li
     is_ip = bool(_IP_RE.match(ip_address))
     short_name = ip_address.split(".")[0] if not is_ip else None
 
-    vm_id = _vif_lookup(ip_address)
-    if not vm_id and is_ip:
-        vm_id = _vm_ip_search(ip_address)
+    vm_id = _policy_search(ip_address) if is_ip else None
+    if not vm_id:
+        vm_id = _vif_pagination(ip_address)
     if not vm_id and short_name:
         vm_id = _name_search(short_name)
 
