@@ -193,6 +193,8 @@ class Handler(BaseHTTPRequestHandler):
         policy_name = body.get("policy_name", "Virtual Patches")
         category = body.get("category", "EmergencyThreatRules")
         rule_name = body.get("rule_name", f"VirtualPatch-Rule-{run_id}")
+        rule_protocol = body.get("protocol", "")
+        rule_port = body.get("port", "")
 
         # Rule-level action only; signature default actions are left unchanged.
         rule_action = "DETECT" if action == "DETECT" else "DETECT_PREVENT"
@@ -205,21 +207,24 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # Tag the VMs
-        for ip in host_ips:
-            nsx_client.tag_vm_by_ip(url, user, pwd, ip, cve_list)
+        tag_results = [nsx_client.tag_vm_by_ip(url, user, pwd, ip, cve_list) for ip in host_ips]
+        tagged = [r["ip"] for r in tag_results if r and r.get("tagged")]
+        not_found = [r["ip"] for r in tag_results if r and not r.get("tagged")]
 
         group_r   = nsx_client.create_group(url, user, pwd, run_id, cve_list)
         profile_r = nsx_client.create_profile(
             url, user, pwd, run_id, profile_name, matched_cves,
             rule_action=rule_action, nsx_version=nsx_version,
         )
-        rule_tag = "Monitor-" + ",".join(cve_list)
+        rule_tag = "IDS-" + ",".join(cve_list)
         policy_r  = nsx_client.create_policy(
             url, user, pwd, run_id, rule_name,
             profile_r["profile_path"], group_r["group_path"],
             category, policy_name, rule_action,
             nsx_version=nsx_version,
             rule_tag=rule_tag,
+            protocol=rule_protocol,
+            port=rule_port,
         )
 
         _record_profile(profile_r["profile_id"], profile_name, cve_list, rule_action)
@@ -230,6 +235,8 @@ class Handler(BaseHTTPRequestHandler):
             **group_r, **profile_r, **policy_r,
             "cves_covered": len(matched_cves),
             "hosts_protected": len(host_ips),
+            "tagged": tagged,
+            "not_found": not_found,
             "action": action,
             "nsx_version": nsx_version,
             "message": "Virtual patch deployed successfully.",

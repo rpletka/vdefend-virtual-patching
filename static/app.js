@@ -35,6 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('saveNsxCreds').checked = true;
     } catch(e) {}
   }
+
+  // Track manual edits on auto-populated name fields so CVE changes don't clobber user input
+  ['profileName', 'advRuleName'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => {
+      el.dataset.userEdited = el.value ? '1' : '';
+    });
+  });
 });
 
 function today() {
@@ -43,6 +51,29 @@ function today() {
 
 function runId() {
   return new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15);
+}
+
+function profileName(cves) {
+  const PREFIX = '';
+  const MAX = 255;
+  const full = PREFIX + cves.join('-');
+  if (full.length <= MAX) return full;
+
+  // Keep as many CVEs as fit, with '...' in the middle
+  let front = [cves[0]];
+  let back  = cves.length > 1 ? [cves[cves.length - 1]] : [];
+  let lo = 1, hi = cves.length - 2;
+
+  const build = (f, b) =>
+    PREFIX + (b.length ? f.join('-') + '...' + b.join('-') : f.join('-'));
+
+  while (lo <= hi) {
+    if (build([...front, cves[lo]], back).length <= MAX)       { front.push(cves[lo++]); continue; }
+    if (build(front, [cves[hi], ...back]).length <= MAX)       { back.unshift(cves[hi--]); continue; }
+    break;
+  }
+
+  return build(front, back);
 }
 
 function showToast(msg, type = 'danger') {
@@ -267,8 +298,13 @@ function renderCveTable(coverageMap = null) {
 }
 
 function updateSelCount() {
-  const checked = document.querySelectorAll('.cve-chk:checked:not(:disabled)').length;
-  document.getElementById('cveSelectionBadge').textContent = `${checked} selected`;
+  const cves = getSelectedCves();
+  document.getElementById('cveSelectionBadge').textContent = `${cves.length} selected`;
+  const name = cves.length ? profileName(cves) : '';
+  const profEl = document.getElementById('profileName');
+  const ruleEl = document.getElementById('advRuleName');
+  if (!profEl.dataset.userEdited) profEl.value = name;
+  if (!ruleEl.dataset.userEdited) ruleEl.value = name;
 }
 
 function selectAll() {
@@ -305,8 +341,6 @@ function getSelectedCves() {
 function goToStep4() {
   const selected = getSelectedCves();
   if (!selected.length) { showToast('Please select at least one CVE to patch.'); return; }
-  document.getElementById('profileName').value = `VirtualPatch-${today()}`;
-  document.getElementById('policyName').value  = `VirtualPatch-Policy-${today()}`;
   goToStep(4);
 }
 
@@ -418,14 +452,17 @@ async function deploy() {
   const pass    = document.getElementById('nsxPass').value;
   
   // Advanced Config
-  const action  = document.getElementById('actionMode').value;
+  const action   = document.getElementById('actionMode').value;
   const category = document.getElementById('advCategory').value;
-  const polN    = document.getElementById('advPolicyName').value.trim() || "Virtual Patches";
-  const ruleN   = document.getElementById('advRuleName').value.trim() || `VirtualPatch-Rule-${today()}`;
-  const profN   = `VirtualPatch-Profile-${today()}`;
+  const polN     = document.getElementById('advPolicyName').value.trim() || 'Virtual Patches';
+  const ruleN    = document.getElementById('advRuleName').value.trim() || `VirtualPatch-Rule-${today()}`;
+  const protocol = document.getElementById('advProtocol').value;
+  const port     = document.getElementById('advPort').value.trim();
 
   const selectedCves = getSelectedCves();
   if (!selectedCves.length) { showToast('No CVEs selected.'); return; }
+
+  const profN = document.getElementById('profileName').value.trim() || profileName(selectedCves);
 
   goToStep(5);
   const logEl = document.getElementById('deployLog');
@@ -461,8 +498,11 @@ async function deploy() {
       category: category,
       rule_name: ruleN,
       run_id: rid,
+      ...(port ? { protocol: protocol || 'TCP', port } : {}),
     });
 
+    if (res.tagged?.length)     log(`Tagged ${res.tagged.length} VM(s): ${res.tagged.join(', ')}`, 'ok');
+    if (res.not_found?.length)  log(`VM not found in NSX for: ${res.not_found.join(', ')}`, 'warn');
     log(`Dynamic group created: ${res.group_name}`, 'ok');
     log(`IDPS profile created: ${res.profile_id} (${res.signatures_applied} signatures)`, 'ok');
     log(`Distributed policy rule created: ${res.rule_id} in ${res.policy_id}`, 'ok');

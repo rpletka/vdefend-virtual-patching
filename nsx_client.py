@@ -192,42 +192,60 @@ def index_signatures(url: str, username: str, password: str, cve_list: list) -> 
     }
 
 
+_IP_RE = __import__("re").compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+
 def tag_vm_by_ip(url: str, username: str, password: str, ip_address: str, cve_list: list):
     url = _clean_url(url)
 
-    query = "resource_type:VirtualMachine"
-    endpoint = f"{url}{POLICY}/search/query?query={urllib.parse.quote(query)}&page_size=50"
-
-    res = _req(endpoint, username=username, password=password)
-    vm_id = None
-    if res and res.get("results"):
-        for vm in res["results"]:
-            if "vulhub" in vm.get("display_name", "").lower():
-                vm_id = vm.get("external_id")
+    def _vif_lookup(ip):
+        """Walk fabric VIFs — IPs are nested in ip_address_info[].ip_addresses[]."""
+        cursor = None
+        while True:
+            qs = f"page_size=500{f'&cursor={urllib.parse.quote(cursor)}' if cursor else ''}"
+            res = _req(f"{url}/api/v1/fabric/vifs?{qs}", username=username, password=password)
+            for vif in (res or {}).get("results", []):
+                vif_ips = [a for info in vif.get("ip_address_info", [])
+                           for a in info.get("ip_addresses", [])]
+                if ip in vif_ips:
+                    return vif.get("owner_vm_id")
+            cursor = (res or {}).get("cursor")
+            if not cursor:
                 break
+        return None
+
+    def _name_search(name):
+        """Fabric VM list by display_name — only useful when identifier is a hostname."""
+        res = _req(f"{url}/api/v1/fabric/virtual-machines?display_name={urllib.parse.quote(name)}",
+                   username=username, password=password)
+        results = (res or {}).get("results", [])
+        return results[0].get("external_id") if results else None
+
+    is_ip = bool(_IP_RE.match(ip_address))
+    short_name = ip_address.split(".")[0] if not is_ip else None
+
+    vm_id = _vif_lookup(ip_address)
+    if not vm_id and short_name:
+        vm_id = _name_search(short_name)
 
     if not vm_id:
-        print(f"Could not find VM in NSX inventory for IP {ip_address}")
-        return
+        print(f"Could not find VM in NSX inventory for {ip_address}")
+        return {"tagged": False, "ip": ip_address}
 
-    print(f"Found VM {vm_id} for IP {ip_address}. Applying tags...")
+    print(f"Found VM {vm_id} for {ip_address}. Applying tags...")
 
-    tag_endpoint = f"{url}/api/v1/fabric/virtual-machines?action=add_tags"
     tags = [{"scope": "Vulnerability", "tag": cve} for cve in cve_list[:30]]
-
-    body = {
-        "external_id": vm_id,
-        "tags": tags
-    }
-
-    _req(tag_endpoint, method="POST", body=body, username=username, password=password)
+    _req(f"{url}/api/v1/fabric/virtual-machines?action=add_tags",
+         method="POST", body={"external_id": vm_id, "tags": tags},
+         username=username, password=password)
     print(f"Successfully tagged VM {vm_id} with {cve_list}")
+    return {"tagged": True, "ip": ip_address, "vm_id": vm_id}
 
 
 def create_group(url: str, username: str, password: str, run_id: str, cve_list: list) -> dict:
     url = _clean_url(url)
-    group_name = cve_list[0] if len(cve_list) == 1 else f"VirtualPatch-Multiple-CVEs-{run_id}"
-    group_id = f"virtualPatch-{run_id}"
+    group_name = cve_list[0] if len(cve_list) == 1 else "VirtualPatch-Multiple-CVEs"
+    # Stable ID so re-deploys update the same group rather than creating new ones
+    group_id = "virtualPatch-" + "-".join(sorted(c.upper().replace("CVE-", "") for c in cve_list))
 
     expressions = []
     for i, cve in enumerate(cve_list):
@@ -246,10 +264,13 @@ def create_group(url: str, username: str, password: str, run_id: str, cve_list: 
         "display_name": group_name,
         "expression": expressions,
     }
-    _req(
-        f"{url}{POLICY}/infra/domains/default/groups/{group_id}",
-        method="PUT", body=body, username=username, password=password,
-    )
+    endpoint = f"{url}{POLICY}/infra/domains/default/groups/{group_id}"
+    try:
+        _req(endpoint, username=username, password=password)
+        method = "PATCH"
+    except Exception:
+        method = "PUT"
+    _req(endpoint, method=method, body=body, username=username, password=password)
     return {"group_id": group_id, "group_path": f"/infra/domains/default/groups/{group_id}", "group_name": group_name}
 
 
@@ -458,16 +479,59 @@ def create_profile(
         }
 
 
+def _resolve_service(url: str, username: str, password: str,
+                     protocol: str, port: str) -> str:
+    """Return the path of an NSX service matching protocol/port.
+
+    Searches all existing services first (built-in and custom). Only creates
+    a new vp- service if no existing service matches.
+    """
+    proto = protocol.upper()
+    port_str = str(port)
+
+    # Walk all services looking for an L4 entry that matches
+    cursor = None
+    while True:
+        qs = f"page_size=1000{f'&cursor={urllib.parse.quote(cursor)}' if cursor else ''}"
+        res = _req(f"{url}{POLICY}/infra/services?{qs}", username=username, password=password)
+        for svc in (res or {}).get("results", []):
+            for entry in svc.get("service_entries", []):
+                if (entry.get("resource_type") == "L4PortSetServiceEntry"
+                        and entry.get("l4_protocol", "").upper() == proto
+                        and port_str in [str(p) for p in entry.get("destination_ports", [])]):
+                    path = svc.get("path") or f"/infra/services/{svc['id']}"
+                    print(f"Found existing service {svc['id']} for {proto} {port_str}")
+                    return path
+        cursor = (res or {}).get("cursor")
+        if not cursor:
+            break
+
+    # No existing service matched — create a custom one
+    service_id = f"{proto.lower()}-{port_str}"
+    print(f"Creating service {service_id} ({proto} {port_str})")
+    _req(f"{url}{POLICY}/infra/services/{service_id}",
+         method="PATCH", username=username, password=password, body={
+             "display_name": f"{proto} {port_str}",
+             "service_entries": [{
+                 "id": f"port-{port_str}",
+                 "resource_type": "L4PortSetServiceEntry",
+                 "l4_protocol": proto,
+                 "destination_ports": [port_str],
+             }],
+         })
+    return f"/infra/services/{service_id}"
+
+
 def create_policy(
     url: str, username: str, password: str,
     run_id: str, rule_name: str, profile_path: str, group_path: str,
     category: str = "EmergencyThreatRules", policy_name: str = "Virtual Patches",
     rule_action: str = "DETECT_PREVENT", nsx_version: str = "",
-    rule_tag: str = "",
+    rule_tag: str = "", protocol: str = "", port: str = "",
 ) -> dict:
     url = _clean_url(url)
     policy_id = "Virtual-Patches-Policy"
-    sequence_number = 1 if _needs_exclusion_approach(nsx_version) else 10
+    sequence_number = 1
 
     endpoint = f"{url}{POLICY}/infra/domains/default/intrusion-service-policies/{policy_id}"
     try:
@@ -478,13 +542,22 @@ def create_policy(
         rules = []
         method = "PUT"
 
+    if protocol and port:
+        service_path = _resolve_service(url, username, password, protocol, port)
+        services = [service_path]
+    else:
+        services = ["ANY"]
+
+    # Stable rule ID derived from the profile so re-deploys update the same rule
+    rule_id = "rule-" + profile_path.split("/")[-1]
+
     new_rule = {
-        "id": f"rule-{run_id}",
+        "id": rule_id,
         "display_name": rule_name,
         "ids_profiles": [profile_path],
         "source_groups": ["ANY"],
         "destination_groups": [group_path],
-        "services": ["ANY"],
+        "services": services,
         "action": rule_action,
         "direction": "IN",
         "logged": True,
@@ -492,6 +565,9 @@ def create_policy(
     }
     if rule_tag:
         new_rule["tag"] = rule_tag
+
+    # Replace any existing rule with the same ID rather than appending
+    rules = [r for r in rules if r.get("id") != rule_id]
     rules.append(new_rule)
 
     body = {
@@ -504,6 +580,6 @@ def create_policy(
     return {
         "policy_id": policy_id,
         "policy_path": f"/infra/domains/default/intrusion-service-policies/{policy_id}",
-        "rule_id": f"rule-{run_id}",
+        "rule_id": rule_id,
         "category_used": category,
     }

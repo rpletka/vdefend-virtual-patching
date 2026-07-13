@@ -187,13 +187,9 @@
               <option value="DETECT_PREVENT">DETECT_PREVENT — Block &amp; Alert</option>
             </select>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-8">
             <label class="form-label">Profile Name</label>
-            <input id="profileName" type="text" class="form-control" />
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Policy Name</label>
-            <input id="policyName" type="text" class="form-control" />
+            <input id="profileName" type="text" class="form-control" placeholder="Auto-populated from CVEs" />
           </div>
         </div>
         <div class="mt-3">
@@ -220,7 +216,19 @@
                     </div>
                     <div class="col-md-6">
                       <label class="form-label text-muted small mb-1">Rule Name</label>
-                      <input type="text" class="form-control form-control-sm" id="advRuleName" placeholder="Auto-generated">
+                      <input type="text" class="form-control form-control-sm" id="advRuleName" placeholder="Auto-populated from CVEs">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label text-muted small mb-1">Protocol <span class="text-muted">(optional)</span></label>
+                      <select class="form-select form-select-sm" id="advProtocol">
+                        <option value="" selected>Any</option>
+                        <option value="TCP">TCP</option>
+                        <option value="UDP">UDP</option>
+                      </select>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label text-muted small mb-1">Destination Port <span class="text-muted">(optional)</span></label>
+                      <input type="text" class="form-control form-control-sm" id="advPort" placeholder="">
                     </div>
                   </div>
                 </div>
