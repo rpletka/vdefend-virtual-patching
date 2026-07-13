@@ -199,7 +199,7 @@ def tag_vm_by_ip(url: str, username: str, password: str, ip_address: str, cve_li
 
     def _policy_search(ip):
         """Search policy index for VirtualMachine by IP — works across all NSX 9.x versions."""
-        query = f"resource_type:VirtualMachine AND ip_addresses:{urllib.parse.quote(ip)}"
+        query = urllib.parse.quote(f"resource_type:VirtualMachine AND ip_addresses:{ip}")
         res = _req(f"{url}{POLICY}/search/query?query={query}&page_size=10",
                    username=username, password=password)
         results = (res or {}).get("results", [])
